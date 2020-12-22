@@ -1,0 +1,10 @@
+{% ckan_extends %}
+
+{% block extras %}
+  {% if pkg_dict.cong_field1 %}
+    <tr>
+      <th scope="row" class="dataset-label">{{ _("Cong Field 12") }}</th>
+      <td class="dataset-details">{{ pkg_dict.cong_field1 }}</td>
+    </tr>
+  {% endif %}
+{% endblock %}
