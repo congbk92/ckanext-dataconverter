@@ -7,48 +7,66 @@ import sys, os
 import uuid
 import subprocess
 #import docker
+import configparser
 
 class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
 
     def __init__(self, name = None):
         self.config_path = None
-    
+        self.config = configparser.ConfigParser()
+        self.common_config = {   'ckan_sever' : 'http://localhost:5000',
+                                    'mongodb_sever' : 'http://localhost:27017'}
+        self.uuid4 = uuid.uuid4().hex
+        self.config_path = f'/tmp/{self.uuid4}/config.ini'
+        self.env = dict()
+
     p.implements(p.IDatasetForm)
     p.implements(p.IConfigurer)
     p.implements(p.IResourceController, inherit=True)
 
     def after_create(self, context, resource):
         super(DataconverterPlugin, self).after_create(context, resource)
-        # print(open("/home/mypc/Desktop/network_config.ini").read())
-        # #tmp = DDSConector("/home/mypc/Desktop/file_idl.idl", "/home/mypc/Desktop/network_config.ini")
-        # os.system(f"rm -rf /tmp/{self.uuid4}")
-        # tmp.publish_example()
         print("$$$$$$$$$$$$$$$------after_create----$$$$$$$$$$$$$$$$$")
         print(context)
         print(resource)
+        if resource["source_type"] == "dds_static":
+            result = subprocess.check_output(f"docker exec source_opendds-ckan_1 python3 ./source/run.py check -i {self.env['file_idl']}", shell=True).decode()
+            if result.strip() == "valid":
+                self.common_config['resource_id'] = resource["id"]
+                self.config['common'] = self.common_config
+                self.config['dds'] =  { "mode" : "subscriber",
+                                        "topic_name" : resource["topic_name"],
+                                        "file_idl" : self.env["file_idl"],
+                                        "network_config" : self.env["network_config"]}
+                    
+                with open(f'{self.config_path}', 'w') as configfile:
+                    self.config.write(configfile)
+                os.system(f"docker exec -d source_opendds-ckan_1 python3 ./source/run.py -f {self.config_path}")
+
+        #To Do:
+        #os.system(f"rm -rf /tmp/{self.uuid4}")
         print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
 
     def before_create(self, context, resource):
         print("*****************--------before_create------------********************")
         print(context)
         print(resource)
-        if "network_config" in resource and "file_idl" in resource:
-            uuid4 = uuid.uuid4().hex
-            os.system(f"mkdir /tmp/{uuid4}")
+        self.common_config['api_token'] = context["auth_user_obj"].apikey
+        os.system(f"mkdir /tmp/{self.uuid4}")
 
-            self.network_config = f"/tmp/{uuid4}/rtps.ini"
-            resource["network_config"].save(self.network_config)
+        if "network_config" in resource and "file_idl" in resource:
+            network_config_path = f"/tmp/{self.uuid4}/rtps.ini"
+            resource["network_config"].save(network_config_path)
             del resource["network_config"]
 
-            self.file_idl = f"/tmp/{uuid4}/Messenger.idl"
-            resource["file_idl"].save(self.file_idl)
+            file_idl_path = f"/tmp/{self.uuid4}/Messenger.idl"
+            resource["file_idl"].save(file_idl_path)
             del resource["file_idl"]
 
-            result = subprocess.check_output(f"docker exec source_opendds-ckan_1 python3 ./source/run.py check -i {self.file_idl}", shell=True).decode()
-            if result == "valid":
-                os.system(f"docker exec -d source_opendds-ckan_1 python3 ./source/run.py run -t subscriber -i {self.file_idl} -n {self.network_config}")
-            os.system(f"rm -rf /tmp/{uuid4}")
+            self.env["network_config"] = network_config_path
+            self.env["file_idl"] = file_idl_path
         print("*************************************")
+        super(DataconverterPlugin, self).before_create(context, resource)
 
     def before_update(self, context, current, resource):
         print("$$$$$$$$$$$$$$$------before_update----$$$$$$$$$$$$$$$$$")

@@ -1,9 +1,4 @@
 {% ckan_extends %}
 
 {% block package_basic_fields_custom %}
-  {{ form.select('source_type', label=_('Data Resource Type'), options=[
-          {'value': 'dds_static' , 'text' : 'DDS static data represent by IDL'},
-          {'value': 'dds_dynamic', 'text' : 'DDS dynamic data'},
-          {'value': 'others', 'text' : 'Others'}
-  ], selected='Other', error=error) }}
 {% endblock %}

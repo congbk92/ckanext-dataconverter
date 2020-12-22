@@ -2,10 +2,15 @@
 
 {% block basic_fields_url %}
     {#{ super() }#}
+    {{ form.select('source_type', label=_('Data Resource Type'), options=[
+          {'value': 'dds_static' , 'text' : 'DDS static data represent by IDL'},
+          {'value': 'dds_dynamic', 'text' : 'DDS dynamic data'},
+          {'value': 'others', 'text' : 'Others'}
+  		], selected='Other', error=error) }}
+  		
     {{ form.input('topic_name', label=_('Topic Name'), id='field-topic_name', placeholder=_('Please input the name of topic'), value=data.topic_name, error=errors.topic_name, classes=['control-medium']) }}
     {{ form.input('file_idl', label=_('File IDL'), id='field-file_idl', type='file', placeholder=_('Input the path of idl file'), value=data.file_idl, error=errors.file_idl, classes=['control-medium']) }}
     {{ form.input('network_config', label=_('Network config file'), type='file', id='field-network_config', placeholder=_('Input the path of network config file'), value=data.network_config, error=errors.network_config, classes=['control-medium']) }}
-
 {% endblock %}
 
 
