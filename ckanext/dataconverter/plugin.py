@@ -14,8 +14,7 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
     def __init__(self, name = None):
         self.config_path = None
         self.config = configparser.ConfigParser()
-        self.common_config = {   'ckan_sever' : 'http://localhost:5000',
-                                    'mongodb_sever' : 'http://localhost:27017'}
+        self.common_config = {'ckan_sever' : 'http://localhost:5000'}
         self.uuid4 = uuid.uuid4().hex
         self.config_path = f'/tmp/{self.uuid4}/config.ini'
         self.env = dict()
@@ -65,6 +64,7 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
 
             self.env["network_config"] = network_config_path
             self.env["file_idl"] = file_idl_path
+            self.common_config['converter'] = 'dds'
         print("*************************************")
         super(DataconverterPlugin, self).before_create(context, resource)
 
