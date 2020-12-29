@@ -16,7 +16,6 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
         self.config = configparser.ConfigParser()
         self.common_config = {'ckan_sever' : 'http://localhost:5000'}
         self.uuid4 = uuid.uuid4().hex
-        self.config_path = f'/tmp/{self.uuid4}/config.ini'
         self.env = dict()
 
     p.implements(p.IDatasetForm)
@@ -24,14 +23,18 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
     p.implements(p.IResourceController, inherit=True)
 
     def after_create(self, context, resource):
+        self.config_path = f'/tmp/{self.uuid4}/config.ini'
         super(DataconverterPlugin, self).after_create(context, resource)
         print("$$$$$$$$$$$$$$$------after_create----$$$$$$$$$$$$$$$$$")
         print(context)
         print(resource)
-        if resource["source_type"] == "dds_static":
+        if "source_type" in resource and resource["source_type"] == "dds_static":
             result = subprocess.check_output(f"docker exec source_opendds-ckan_1 python3 ./source/run.py check -i {self.env['file_idl']}", shell=True).decode()
             if result.strip() == "valid":
                 self.common_config['resource_id'] = resource["id"]
+                self.common_config['package_id'] = resource["package_id"]
+                self.common_config['name'] = resource["name"] if resource["name"] else self.uuid4
+
                 self.config['common'] = self.common_config
                 self.config['dds'] =  { "mode" : "subscriber",
                                         "topic_name" : resource["topic_name"],
@@ -40,13 +43,13 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
                     
                 with open(f'{self.config_path}', 'w') as configfile:
                     self.config.write(configfile)
-                os.system(f"docker exec -d source_opendds-ckan_1 python3 ./source/run.py -f {self.config_path}")
-
+                os.system(f"docker exec -d source_opendds-ckan_1 python3 ./source/run.py run -c {self.config_path}")
         #To Do:
         #os.system(f"rm -rf /tmp/{self.uuid4}")
         print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
 
     def before_create(self, context, resource):
+        self.uuid4 = uuid.uuid4().hex
         print("*****************--------before_create------------********************")
         print(context)
         print(resource)
@@ -65,6 +68,8 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
             self.env["network_config"] = network_config_path
             self.env["file_idl"] = file_idl_path
             self.common_config['converter'] = 'dds'
+        if not resource["name"] and "topic_name" in resource:
+            resource["name"] = resource["topic_name"]
         print("*************************************")
         super(DataconverterPlugin, self).before_create(context, resource)
 
