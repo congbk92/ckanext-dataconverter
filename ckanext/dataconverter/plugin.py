@@ -62,6 +62,7 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
             del resource["network_config"]
 
             file_idl_path = f"/tmp/{self.uuid4}/Messenger.idl"
+            print(file_idl_path)
             resource["file_idl"].save(file_idl_path)
             del resource["file_idl"]
 
