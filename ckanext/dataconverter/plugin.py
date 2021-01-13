@@ -11,6 +11,9 @@ import configparser
 from werkzeug.datastructures import FileStorage
 import re
 
+def dds_job(configfile):
+    os.system(f"docker run --net=host --rm -v '/tmp:/tmp' opendds-ckan python3 ./source/run.py run -c {configfile}")
+
 class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
 
     def __init__(self, name = None):
@@ -28,11 +31,12 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
     def after_create(self, context, resource):
         self.config_path = f'/tmp/{self.uuid4}/config.ini'
         super(DataconverterPlugin, self).after_create(context, resource)
-        print("$$$$$$$$$$$$$$$------after_create----$$$$$$$$$$$$$$$$$")
-        print(context)
-        print(resource)
+        # print("$$$$$$$$$$$$$$$------after_create----$$$$$$$$$$$$$$$$$")
+        # print(context)
+        # print(resource)
         if "source_type" in resource and resource["source_type"] == "dds_static":
-            result = subprocess.check_output(f"docker exec source_opendds-ckan_1 python3 ./source/run.py check -i {self.env['file_idl']}", shell=True).decode()
+            command = f"docker run --net=host --rm -v '/tmp:/tmp' opendds-ckan python3 ./source/run.py check -i {self.env['file_idl']}"
+            result = subprocess.check_output(command, shell=True).decode()
             if result.strip() == "valid":
                 self.common_config['resource_id'] = resource["id"]
                 self.common_config['package_id'] = resource["package_id"]
@@ -46,16 +50,16 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
                     
                 with open(f'{self.config_path}', 'w') as configfile:
                     self.config.write(configfile)
-                os.system(f"docker exec -d source_opendds-ckan_1 python3 ./source/run.py run -c {self.config_path}")
+                tk.enqueue_job(dds_job, [self.config_path])
         #To Do:
         #os.system(f"rm -rf /tmp/{self.uuid4}")
-        print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+        # print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
 
     def before_create(self, context, resource):
         self.uuid4 = uuid.uuid4().hex
         print("*****************--------before_create------------********************")
-        print(context)
-        print(resource)
+        # print(context)
+        # print(resource)
         self.common_config['api_token'] = context["auth_user_obj"].apikey
         os.system(f"mkdir /tmp/{self.uuid4}")
 
@@ -67,10 +71,34 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
             resource["network_config"].save(network_config_path)
             del resource["network_config"]
 
+            if open(network_config_path).read() == "":
+                resource["network_config"] = "empty"
+            else:
+                try:
+                    config = configparser.ConfigParser()
+                    config.read_file(open(network_config_path))
+                    resource["network_config"] = "valid"
+                except configparser.Error:
+                    resource["network_config"] = "invalid"
+            
+
             file_idl_path = f"/tmp/{self.uuid4}/Messenger.idl"
             print(file_idl_path)
             resource["file_idl"].save(file_idl_path)
             del resource["file_idl"]
+            
+            if open(file_idl_path).read() == "":
+                resource["file_idl"] = "empty"
+            else:
+                command = f"docker run --net=host --rm -v '/tmp:/tmp' opendds-ckan python3 ./source/run.py check -i {file_idl_path}"
+                result = subprocess.check_output(command, shell=True).decode()
+                if result.strip() != "valid":
+                    resource["file_idl"] = "invalid"
+                else:
+                    resource["file_idl"] = "valid"
+
+            print("network_config", resource["network_config"])
+            print("file_idl", resource["file_idl"])
 
             self.env["network_config"] = network_config_path
             self.env["file_idl"] = file_idl_path
@@ -83,11 +111,14 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
         super(DataconverterPlugin, self).before_create(context, resource)
 
     def before_update(self, context, current, resource):
-        print("$$$$$$$$$$$$$$$------before_update----$$$$$$$$$$$$$$$$$")
-        print(context)
-        print(current)
-        print(resource)
-        print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+        # print("$$$$$$$$$$$$$$$------before_update----$$$$$$$$$$$$$$$$$")
+        # print(context)
+        # print(current)
+        # print(resource)
+        # print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+        resource["file_idl"] = "valid"
+        resource["network_config"] = "valid"
+        pass
 
     def update_config(self, config):
         # Add this plugin's templates dir to CKAN's extra_template_paths, so
@@ -125,16 +156,13 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
         #         })
         # # Add our custom_resource_text metadata field to the schema
         schema['resources'].update({
-                'file_idl' : [ tk.get_validator('ignore_missing'),
-                                tk.get_converter('convert_to_extras')]
+                'file_idl' : [ tk.get_validator('ignore_missing'), tk.get_validator('file_idl_validator')]
                 })
         schema['resources'].update({
-                'network_config' : [ tk.get_validator('ignore_missing'),
-                                        tk.get_converter('convert_to_extras')]
+                'network_config' : [ tk.get_validator('ignore_missing'), tk.get_validator('network_config_validator')]
             })
         schema['resources'].update({
-                'topic_name' : [ tk.get_validator('topic_name_validator'),
-                                    tk.get_converter('convert_to_extras')]
+                'topic_name' : [ tk.get_validator('ignore_missing'), tk.get_validator('topic_name_validator')]
             })
         return schema
 
@@ -153,31 +181,28 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
         schema = super(DataconverterPlugin, self).show_package_schema()
         
         schema['resources'].update({
-                'file_idl' : [ tk.get_validator('ignore_missing'),
-                                tk.get_converter('convert_to_extras')]
+                'file_idl' : [ tk.get_validator('ignore_missing'), tk.get_validator('file_idl_validator')]
                 })
         schema['resources'].update({
-                'network_config' : [ tk.get_validator('ignore_missing'),
-                                        tk.get_converter('convert_to_extras')]
+                'network_config' : [ tk.get_validator('ignore_missing'), tk.get_validator('network_config_validator')]
             })
         schema['resources'].update({
-                'topic_name' : [ tk.get_validator('topic_name_validator'),
-                                    tk.get_converter('convert_to_extras')]
+                'topic_name' : [ tk.get_validator('ignore_missing'), tk.get_validator('topic_name_validator')]
             })
-        print("^^^^^^^^^^^^^^^^^^^^^^^^")
-        print(schema)
-        print("^^^^^^^^^^^^^^^^^^^^^^^^")
+        # print("^^^^^^^^^^^^^^^^^^^^^^^^")
+        # print(schema)
+        # print("^^^^^^^^^^^^^^^^^^^^^^^^")
         return schema
 
     def is_fallback(self):
         # Return True to register this plugin as the default handler for
         # package types not handled by any other IDatasetForm plugin.
-        return True
+        return False
 
     def package_types(self):
         # This plugin doesn't handle any special package types, it just
         # registers itself as the default (above).
-        return []
+        return ['dataset']
 
     # def validate(self, context, data_dict, schema, action):
     #     file_idl = data_dict.get("file_idl")
@@ -205,45 +230,28 @@ class DataconverterPlugin(p.SingletonPlugin, tk.DefaultDatasetForm):
         }
 
 
-def file_idl_validator(key, data, errors, context):
-    value = data.get(key)
-    print("#################file_idl_validator#################")
-    print(data)
-    print(type(value))
-    print(errors)
-    print("@@@@@@@@@@@@@@@@@file_idl_validator@@@@@@@@@@@@@@@@@")
-    if value is not None and type(value) is not FileStorage:
-        raise tk.Invalid(u"IDL file isn't uploaded")
-    elif type(value) is FileStorage:
-        tmp_uuid = uuid.uuid4().hex
-        os.system(f"mkdir /tmp/{tmp_uuid}")
-        tmp_idl_file = f"/tmp/{tmp_uuid}/Messenger.idl"
-        value.save(tmp_idl_file)
-        command = f"docker exec source_opendds-ckan_1 python3 ./source/run.py check -i {tmp_idl_file}"
-        result = subprocess.check_output(command, shell=True).decode()
-        if result.strip() != "valid":
-            raise tk.Invalid(u"IDL file is invalid. Please check!")
+def file_idl_validator(value):
+    #value = data.pop(key, None)
+    print("file_idl_validator", value)
+    if value == "invalid":
+        raise tk.Invalid(u"IDL file is invalid. Please check!")
+    elif value == "empty":
+        raise tk.Invalid(u"Missing value")
     return value
 
-def network_config_validator(key, data, errors, context):
-    value = data.get(key)
-    if value is not None and type(value) is not FileStorage:
-        raise tk.Invalid(u"Network config file isn't uploaded")
-    elif type(value) is FileStorage:
-        tmp_uuid = uuid.uuid4().hex
-        os.system(f"mkdir /tmp/{tmp_uuid}")
-        tmp_ini_file = f"/tmp/{tmp_uuid}/rtps.ini"
-        value.save(tmp_ini_file)
-        try:
-            config = configparser.ConfigParser()
-            config.read_file(open(tmp_ini_file))
-        except configparser.Error:
-            raise tk.Invalid(u"Network config file is invalid. Please check!")
+def network_config_validator(value):
+    #value = data.pop(key, None)
+    print("network_config_validator", value)
+    if value == "invalid":
+        raise tk.Invalid(u"Network config file is invalid. Please check!")
+    elif value == "empty":
+        raise tk.Invalid(u"Missing value")
     return value
 
 def topic_name_validator(value):
+    #value = data.pop(key, None)
     if value == "":
-        raise tk.Invalid(u"Topic name is missing")
+        raise tk.Invalid(u"Missing value")
     elif type(value) is str:
         x = re.match(r'[_a-zA-z][_a-zA-z0-9]*', value)
         if x is None:
